@@ -11,7 +11,7 @@ import {
 const counter = ref(0);
 
 // указываем путь к документу
-const counterRef = doc(db, "counters", "main1");
+const counterRef = doc(db, "counters", "main");
 
 onMounted(() => {
   // слушаем изменения в Firestore

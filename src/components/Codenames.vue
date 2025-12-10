@@ -55,7 +55,7 @@ const playersRoundDuration = 10;
 const captainRoundDuration = 10;
 const winRequirement = 20;
 const roundTimer = ref(0);
-const currentTeamIndex = ref<number>(-1);
+const localTeamIndex = ref<number>(-1); // -1 = no team 0 = blue 1 = red 2 = blueCap 3 = redCap
 
 const playerUid = ref("testUID"); //TODO: assign automatically
 const roomRef= doc(db, "room", roomId);
@@ -66,6 +66,8 @@ interface Team
   score: number;
 }
 
+const currentlyUpdatingData = ref<boolean>(false);
+
 //sync with server
 const redCap = ref<string>("");
 const teamRed = ref<Team>({players:new Array<string>(), score:0});
@@ -73,19 +75,26 @@ const teamRed = ref<Team>({players:new Array<string>(), score:0});
 const blueCap = ref<string>("");
 const teamBlue = ref<Team>({players:new Array<string>(), score:0});
 
+const wordsField = ref<Array<string>>(new Array<string>);
+
+const redWordIndexes = ref<Array<number>>(new Array<number>);
+const blueWordIndexes = ref<Array<number>>(new Array<number>);
+const whiteWordIndexes = ref<Array<number>>(new Array<number>);
+const blackWordIndex = ref<number>(0);
+
+//paths
 const redCapPath = "gameState.redCap";
 const teamRedPath = "gameState.teamRed";
 const teamBluePath = "gameState.teamBlue";
 const blueCapPath = "gameState.blueCap";
 
-const currentlyUpdatingData = ref<boolean>(false);
 
 onMounted(() => 
 {
   window.addEventListener('beforeunload', handleBeforeUnload);
   watch(playerUid, () => 
   {
-    updateCurrentTeamIndex();
+    updateLocalTeamIndex();
   });
   onSnapshot(roomRef, (snap) => 
   {
@@ -108,15 +117,13 @@ onMounted(() =>
         teamBlue.value = snap.data().gameState.teamBlue;
       }
     }
+  updateLocalTeamIndex();
   });
-  updateCurrentTeamIndex();
 });
 
-const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-  if(canLeaveTeam())
-  { 
-    //leaveTeam(); //UNCOMMENT TO KICK FROM TEAM ON PAGE REFRESH/CLOSE
-  }
+const handleBeforeUnload = (event: BeforeUnloadEvent) => 
+{
+   // leaveAnyPosition(); //UNCOMMENT TO KICK FROM TEAM ON PAGE REFRESH/CLOSE
 };
 
 onUnmounted(() => {
@@ -132,19 +139,27 @@ const updateToServer = async (data:{}) =>
   currentlyUpdatingData.value = false;
 }
 
-const updateCurrentTeamIndex = () =>
+const updateLocalTeamIndex = () =>
 {
   if(teamBlue.value.players.includes(playerUid.value))
     {
-     currentTeamIndex.value = 0; 
+     localTeamIndex.value = 0; 
     }
     else if(teamRed.value.players.includes(playerUid.value))
     {
-     currentTeamIndex.value = 1; 
+     localTeamIndex.value = 1; 
+    }
+    else if(blueCap.value == playerUid.value)
+    {
+     localTeamIndex.value = 2; 
+    }
+    else if(redCap.value == playerUid.value)
+    {
+     localTeamIndex.value = 3; 
     }
     else
     {
-     currentTeamIndex.value = -1; 
+     localTeamIndex.value = -1; 
     }
 }
 
@@ -152,11 +167,9 @@ const updateCurrentTeamIndex = () =>
 //BLUE = 0 RED = 1 
 const canJoinTeam = (teamIndex:number) =>
 {
-  if(currentlyUpdatingData.value)
-    return false;
   if(teamIndex < 0 || teamIndex > 1)
     return false;
-  if(teamIndex == currentTeamIndex.value)
+  if(teamIndex == localTeamIndex.value)
     return false;
 
   return true;
@@ -165,10 +178,8 @@ const canJoinTeam = (teamIndex:number) =>
 
 const canLeaveTeam = () =>
 {
-  updateCurrentTeamIndex();
-  if(currentlyUpdatingData.value)
-    return false;
-  if(currentTeamIndex.value == -1)
+  updateLocalTeamIndex();
+  if(localTeamIndex.value == -1 || localTeamIndex.value == 2 || localTeamIndex.value == 3)
     return false;
   return true;
   
@@ -182,7 +193,7 @@ const leaveTeam = async () =>
     return;
   }
   
-  if(currentTeamIndex.value  == 0)
+  if(localTeamIndex.value  == 0)
   {
     const index = teamBlue.value.players.indexOf(playerUid.value);
     teamBlue.value.players.splice(index, 1);
@@ -201,7 +212,7 @@ const leaveTeam = async () =>
       [teamRedPath]: teamRed.value
     });
   }
-  updateCurrentTeamIndex();
+  updateLocalTeamIndex();
 }
 
 //BLUE = 0 RED = 1 
@@ -209,10 +220,9 @@ const joinTeam = async (teamIndex:number) =>
 {
   if(teamIndex < 0 && teamIndex > 1)
     return;
-  if(canLeaveTeam())
-  {
-    await leaveTeam();
-  }
+
+  await leaveAnyPosition();
+  
   if(!canJoinTeam(teamIndex))
   {
     console.warn("Cant join team " + teamIndex + " But trying to anyway?");
@@ -236,7 +246,101 @@ const joinTeam = async (teamIndex:number) =>
       [teamRedPath]: teamRed.value
     });
   }
-  updateCurrentTeamIndex();
+  updateLocalTeamIndex();
+}
+
+//BLUE = 0 RED = 1
+const canBecomeCap = (teamIndex:number) =>
+{
+  updateLocalTeamIndex();
+  if(teamIndex < 0 || teamIndex > 1)
+    return false;
+  const currnetCap = teamIndex == 0 ? blueCap.value : redCap.value; 
+  if(currnetCap != "")
+  {
+    return false;    
+  }
+  return true;
+}
+
+//BLUE = 0 RED = 1
+const becomeCap = async (teamIndex:number) =>
+{
+  if(!canBecomeCap(teamIndex))
+  {
+    console.warn("Trying to become cap of team " + teamIndex + " when can not.");
+    return;
+  }
+  await leaveAnyPosition();
+  
+
+  //BLUE
+  if(teamIndex == 0)
+  {
+    blueCap.value = playerUid.value;
+    await updateDoc(roomRef, 
+    {
+      [blueCapPath]: blueCap.value
+    });
+  }
+  else
+  {
+    redCap.value = playerUid.value;
+    await updateDoc(roomRef, 
+    {
+      [redCapPath]: redCap.value
+    });
+  }
+  updateLocalTeamIndex();
+}
+
+const canLeaveCapPost = () =>
+{
+  updateLocalTeamIndex();
+  if(localTeamIndex.value != 2 && localTeamIndex.value != 3)
+  {
+    return false;
+  }
+  return true;
+}
+
+const leaveCapPost = async () =>
+{
+  if(localTeamIndex.value != 2 && localTeamIndex.value != 3)
+  {
+    console.warn("Trying to leave cap post when can not.");
+    return;
+  }
+  //BLUE
+  if(localTeamIndex.value == 2)
+  {
+    blueCap.value = "";
+    await updateDoc(roomRef, 
+    {
+      [blueCapPath]: blueCap.value
+    });
+  }
+  else
+  {
+      redCap.value ="";
+      await updateDoc(roomRef, 
+      {
+        [redCapPath]: redCap.value
+      });
+  }
+  updateLocalTeamIndex();
+}
+
+const leaveAnyPosition = async () =>
+{
+  if(canLeaveCapPost())
+  {
+    await leaveCapPost();
+  }
+  else if(canLeaveTeam())
+  {
+    await leaveTeam();
+  }
 }
 
 </script>
@@ -247,30 +351,38 @@ const joinTeam = async (teamIndex:number) =>
     <div style="display: flex; flex-direction: row;">
       <div>
         <p>BLUE</p>
-        <p>{{ redCap }}</p>
+        <p>{{ blueCap }}</p>
+        <button :hidden="!canBecomeCap(0)" :disabled="currentlyUpdatingData" @click="becomeCap(0)">JOIN BLUE AS CAP</button>
+
         <ul>
           <li v-for="(value) in teamBlue.players" >
             {{ value }}
           </li>
         </ul>
-        <button :disabled="!canJoinTeam(0)" @click="joinTeam(0)">JOIN</button>
+        <button :hidden="!canJoinTeam(0)" :disabled="currentlyUpdatingData" @click="joinTeam(0)">JOIN BLUE</button>
       </div>
 
       <div>
         <p>RED</p>
         <p>{{ redCap }}</p>
+        <button :hidden="!canBecomeCap(1)" :disabled="currentlyUpdatingData" @click="becomeCap(1)">JOIN RED AS CAP</button>
+
         <ul style="flex-direction: row; display: flex; align-items: center;">
           <li v-for="(value) in teamRed.players" >
             {{ value }}
           </li>
         </ul>
-        <button :disabled="!canJoinTeam(1)" @click="joinTeam(1)">JOIN</button>
+        <button :hidden="!canJoinTeam(1)" :disabled="currentlyUpdatingData" @click="joinTeam(1)">JOIN RED</button>
       </div>
     </div>
+    <button :hidden="!canLeaveTeam()" :disabled="currentlyUpdatingData" @click="leaveTeam">Leave team</button>
+    <button :hidden="!canLeaveCapPost()" :disabled="currentlyUpdatingData" @click="leaveCapPost">Leave cap post</button>
     <div>
       DEBUG INFO:<br>
       Updating data:{{ currentlyUpdatingData }}<br></br>
-      currentTeamIndex: {{ currentTeamIndex }}<br></br>
+      currentTeamIndex: {{ localTeamIndex }}<br></br>
+      blueCap: {{ blueCap }}<br></br>
+      redCap: {{ redCap }}<br></br>
     </div>
 
   </div>

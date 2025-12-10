@@ -69,6 +69,9 @@ interface Team
 const currentlyUpdatingData = ref<boolean>(false);
 
 //sync with server
+const startingTeam = ref<number>(0); // 0 = blue, 1 = red
+
+
 const redCap = ref<string>("");
 const teamRed = ref<Team>({players:new Array<string>(), score:0});
 
@@ -77,16 +80,26 @@ const teamBlue = ref<Team>({players:new Array<string>(), score:0});
 
 const wordsField = ref<Array<string>>(new Array<string>);
 
-const redWordIndexes = ref<Array<number>>(new Array<number>);
-const blueWordIndexes = ref<Array<number>>(new Array<number>);
-const whiteWordIndexes = ref<Array<number>>(new Array<number>);
+const redWordsIndexes = ref<Array<number>>(new Array<number>);
+const blueWordsIndexes = ref<Array<number>>(new Array<number>);
+const whiteWordsIndexes = ref<Array<number>>(new Array<number>);
 const blackWordIndex = ref<number>(0);
 
 //paths
+
+const startingTeamPath = "gameState.startingTeam";
+
 const redCapPath = "gameState.redCap";
 const teamRedPath = "gameState.teamRed";
 const teamBluePath = "gameState.teamBlue";
 const blueCapPath = "gameState.blueCap";
+
+const wordsFieldPath = "gameState.wordsField";
+
+const redWordIndexesPath = "gameState.redWordsIndexes";
+const blueWordIndexesPath ="gameState.blueWordsIndexes";
+const whiteWordIndexesPath = "gameState.whiteWordsIndexes";
+const blackWordIndexPath = "gameState.blackWordIndex";
 
 
 onMounted(() => 
@@ -100,6 +113,11 @@ onMounted(() =>
   {
     if (snap.exists()) 
     {
+      if (snap.data().gameState.startingTeam !== undefined)
+      {
+        startingTeam.value = snap.data().gameState.startingTeam;
+      }
+
       if (snap.data().gameState.redCap !== undefined)
       {
           redCap.value = snap.data().gameState.redCap;
@@ -116,6 +134,29 @@ onMounted(() =>
       {
         teamBlue.value = snap.data().gameState.teamBlue;
       }
+
+      if (snap.data().gameState.wordsField !== undefined)
+      {
+        wordsField.value = snap.data().gameState.wordsField;
+      }
+
+      if (snap.data().gameState.redWordsIndexes !== undefined)
+      {
+        redWordsIndexes.value = snap.data().gameState.redWordsIndexes;
+      }
+      if (snap.data().gameState.blueWordsIndexes !== undefined)
+      {
+        blueWordsIndexes.value = snap.data().gameState.blueWordsIndexes;
+      }
+      if (snap.data().gameState.whiteWordsIndexes !== undefined)
+      {
+        whiteWordsIndexes.value = snap.data().gameState.whiteWordsIndexes;
+      }
+      if (snap.data().gameState.blackWordIndex !== undefined)
+      {
+        blackWordIndex.value = snap.data().gameState.blackWordIndex;
+      }
+      
     }
   updateLocalTeamIndex();
   });
@@ -233,7 +274,7 @@ const joinTeam = async (teamIndex:number) =>
   if(teamIndex == 0)
   {
     teamBlue.value.players.push(playerUid.value);
-    await updateDoc(roomRef, 
+    await updateToServer( 
     {
       [teamBluePath]: teamBlue.value
     });
@@ -241,7 +282,7 @@ const joinTeam = async (teamIndex:number) =>
   else
   {
     teamRed.value.players.push(playerUid.value);
-    await updateDoc(roomRef, 
+    await updateToServer( 
     {
       [teamRedPath]: teamRed.value
     });
@@ -278,7 +319,7 @@ const becomeCap = async (teamIndex:number) =>
   if(teamIndex == 0)
   {
     blueCap.value = playerUid.value;
-    await updateDoc(roomRef, 
+    await updateToServer( 
     {
       [blueCapPath]: blueCap.value
     });
@@ -286,7 +327,7 @@ const becomeCap = async (teamIndex:number) =>
   else
   {
     redCap.value = playerUid.value;
-    await updateDoc(roomRef, 
+    await updateToServer( 
     {
       [redCapPath]: redCap.value
     });
@@ -315,7 +356,7 @@ const leaveCapPost = async () =>
   if(localTeamIndex.value == 2)
   {
     blueCap.value = "";
-    await updateDoc(roomRef, 
+    await updateToServer( 
     {
       [blueCapPath]: blueCap.value
     });
@@ -323,7 +364,7 @@ const leaveCapPost = async () =>
   else
   {
       redCap.value ="";
-      await updateDoc(roomRef, 
+      await updateToServer( 
       {
         [redCapPath]: redCap.value
       });
@@ -342,6 +383,94 @@ const leaveAnyPosition = async () =>
     await leaveTeam();
   }
 }
+
+const generateNewWordField = async () => {
+
+  // 1. Создаем случайный список из 25 уникальных слов.
+
+  // Создаем копию списка слов, чтобы не изменять оригинал
+
+  const shuffledCodenamesWordList = [...codenamesWordList].sort(() => Math.random() - 0.5);
+  wordsField.value = shuffledCodenamesWordList.slice(0, 25);
+
+
+  // 2. Случайно выбираем команду, которая будет отвечать первой.
+  const firstTeamIsBlue = Math.random() < 0.5;
+  startingTeam.value = firstTeamIsBlue ? 0 : 1; // 0 для синих, 1 для красных
+
+
+  // 3. Назначаем слова командам, черное и белые слова.
+  const allWordIndexes = Array.from({ length: 25 }, (_, i) => i);
+  const shuffledIndexes = allWordIndexes.sort(() => Math.random() - 0.5);
+
+
+  let currentIndex = 0;
+
+
+  if (firstTeamIsBlue) {
+
+    blueWordsIndexes.value = shuffledIndexes.slice(currentIndex, currentIndex + 9);
+    currentIndex += 9;
+    redWordsIndexes.value = shuffledIndexes.slice(currentIndex, currentIndex + 8);
+    currentIndex += 8;
+
+  } else {
+
+    redWordsIndexes.value = shuffledIndexes.slice(currentIndex, currentIndex + 9);
+    currentIndex += 9;
+    blueWordsIndexes.value = shuffledIndexes.slice(currentIndex, currentIndex + 8);
+    currentIndex += 8;
+
+  }
+
+  blackWordIndex.value = shuffledIndexes[currentIndex]!;
+  currentIndex += 1;
+
+  whiteWordsIndexes.value = shuffledIndexes.slice(currentIndex);
+
+
+  // 4. Обновляем Firebase с новыми данными игрового состояния.
+  await updateToServer({
+
+    [wordsFieldPath]: wordsField.value,
+    [startingTeamPath]: startingTeam.value,
+    [redWordIndexesPath]: redWordsIndexes.value,
+    [blueWordIndexesPath]: blueWordsIndexes.value,
+    [whiteWordIndexesPath]: whiteWordsIndexes.value,
+    [blackWordIndexPath]: blackWordIndex.value,
+
+  });
+
+  console.log("Новое игровое поле сгенерировано и сохранено в Firestore!");
+};
+
+const getWordClass = (index: number): string => 
+{
+  if(localTeamIndex.value != 2 && localTeamIndex.value != 3)
+  {
+    return 'color-unknown';    
+  }
+
+
+  if (redWordsIndexes.value.includes(index)) 
+  {
+    return 'color-red';
+  }
+
+  if (blueWordsIndexes.value.includes(index)) 
+  {
+    return 'color-blue';
+  }
+
+  if (blackWordIndex.value === index) 
+  {
+    return 'color-black';
+  }
+  
+  return 'color-white';
+
+
+};
 
 </script>
 <template>
@@ -362,6 +491,18 @@ const leaveAnyPosition = async () =>
         <button :hidden="!canJoinTeam(0)" :disabled="currentlyUpdatingData" @click="joinTeam(0)">JOIN BLUE</button>
       </div>
 
+      <div class="codenames-board">
+        <div
+          v-for="(word, index) in wordsField"
+          :key="index"
+          :class="getWordClass(index)"
+          class="codenames-card"
+        >
+          {{ word }}
+        </div>
+      </div>
+
+
       <div>
         <p>RED</p>
         <p>{{ redCap }}</p>
@@ -377,14 +518,143 @@ const leaveAnyPosition = async () =>
     </div>
     <button :hidden="!canLeaveTeam()" :disabled="currentlyUpdatingData" @click="leaveTeam">Leave team</button>
     <button :hidden="!canLeaveCapPost()" :disabled="currentlyUpdatingData" @click="leaveCapPost">Leave cap post</button>
+    <button  @click="generateNewWordField">GENERATE WORD FIELD</button>
     <div>
       DEBUG INFO:<br>
       Updating data:{{ currentlyUpdatingData }}<br></br>
       currentTeamIndex: {{ localTeamIndex }}<br></br>
       blueCap: {{ blueCap }}<br></br>
       redCap: {{ redCap }}<br></br>
+      wordsField: {{ wordsField }}<br></br>
+      whiteWordIndexes: {{ whiteWordsIndexes }}<br></br>
+      redWordIndexes: {{ redWordsIndexes }}<br></br>
+      blueWordIndexes: {{ blueWordsIndexes }}<br></br>
+      blackWordIndex: {{ blackWordIndex }}<br></br>
     </div>
 
   </div>
   
 </template>
+
+<style>
+
+/* Добавьте эти стили в ваш <style> блок */
+
+.codenames-board {
+
+  display: grid;
+
+  grid-template-columns: repeat(5, 1fr); /* 5 колонок */
+
+  gap: 10px; /* Отступы между карточками */
+
+  width: fit-content;
+
+  margin: 20px auto;
+
+  border: 1px solid #ccc;
+
+  padding: 10px;
+
+  border-radius: 8px;
+
+}
+
+
+.codenames-card {
+
+  border: 1px solid #eee;
+
+  padding: 15px 10px;
+
+  display: flex;
+
+  justify-content: center;
+
+  align-items: center;
+
+  text-align: center;
+
+  font-size: 1.1em;
+
+  font-weight: bold;
+
+  height: 80px; /* Фиксированная высота для карточек */
+
+  border-radius: 5px;
+
+  cursor: pointer; /* Для интерактивности */
+
+  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+
+}
+
+
+/* Стили для разных цветов */
+
+.color-red {
+
+  background-color: #ffcccc; /* Светло-красный */
+
+  color: #a00000; /* Темно-красный текст */
+
+}
+
+
+.color-blue {
+
+  background-color: #cceeff; /* Светло-синий */
+
+  color: #0000a0; /* Темно-синий текст */
+
+}
+
+
+.color-white {
+
+  background-color: #f0f0f0; /* Серый/белый фон */
+
+  color: #333; /* Темный текст */
+
+}
+
+
+.color-black {
+
+  background-color: #111; /* Темный фон */
+
+  color: #f0f0f0; /* Светлый текст */
+
+}
+
+
+.color-unknown {
+
+  background-color: #444; /* Темный фон */
+
+  color: #f0f0f0; /* Светлый текст */
+
+}
+
+
+/* Дополнительные стили для команды, которая ходит первой, если хотите */
+
+.starting-team-indicator {
+
+  margin-top: 10px;
+
+  font-size: 1.2em;
+
+  font-weight: bold;
+
+  text-align: center;
+
+}
+
+.starting-team-blue { color: #0000a0; }
+
+.starting-team-red { color: #a00000; }
+
+</style>

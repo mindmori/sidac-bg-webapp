@@ -4,8 +4,7 @@ import { db } from "../firebase";
 import {
   doc,
   onSnapshot,
-  updateDoc,
-  Timestamp
+  updateDoc
 } from "firebase/firestore";
 
 // Слова для игры Codenames
@@ -51,14 +50,11 @@ import {
 ] as const;
 
 const roomId = "codenames_test"; //TODO: get from adress instead
-const playersRoundDuration = 10;
-const captainRoundDuration = 10;
-const winRequirement = 20;
-const roundTimer = ref(0);
 const localTeamIndex = ref<number>(-1); // -1 = no team 0 = blue 1 = red 2 = blueCap 3 = redCap
 
 const playerUid = ref("testUID"); //TODO: assign automatically
 const roomRef= doc(db, "room", roomId);
+
 
 interface Team
 {
@@ -85,6 +81,9 @@ const blueWordsIndexes = ref<Array<number>>(new Array<number>);
 const whiteWordsIndexes = ref<Array<number>>(new Array<number>);
 const blackWordIndex = ref<number>(0);
 
+const knownWordsIndexes= ref<Array<number>>(new Array<number>);
+const winner = ref<number>(-1);
+
 //paths
 
 const startingTeamPath = "gameState.startingTeam";
@@ -100,6 +99,9 @@ const redWordIndexesPath = "gameState.redWordsIndexes";
 const blueWordIndexesPath ="gameState.blueWordsIndexes";
 const whiteWordIndexesPath = "gameState.whiteWordsIndexes";
 const blackWordIndexPath = "gameState.blackWordIndex";
+
+const knownWordsIndexesPath = "gameState.knownWordsIndexes";
+const winnerPath = "gameState.winner";
 
 
 onMounted(() => 
@@ -156,6 +158,14 @@ onMounted(() =>
       {
         blackWordIndex.value = snap.data().gameState.blackWordIndex;
       }
+      if (snap.data().gameState.knownWordsIndexes !== undefined)
+      {
+        knownWordsIndexes.value = snap.data().gameState.knownWordsIndexes;
+      }
+      if (snap.data().gameState.winner !== undefined)
+      {
+        winner.value = snap.data().gameState.winner;
+      }
       
     }
   updateLocalTeamIndex();
@@ -206,7 +216,7 @@ const updateLocalTeamIndex = () =>
 
 
 //BLUE = 0 RED = 1 
-const canJoinTeam = (teamIndex:number) =>
+const canJoinTeam = (teamIndex:number): boolean =>
 {
   if(teamIndex < 0 || teamIndex > 1)
     return false;
@@ -217,7 +227,7 @@ const canJoinTeam = (teamIndex:number) =>
   
 }
 
-const canLeaveTeam = () =>
+const canLeaveTeam = (): boolean =>
 {
   updateLocalTeamIndex();
   if(localTeamIndex.value == -1 || localTeamIndex.value == 2 || localTeamIndex.value == 3)
@@ -291,7 +301,7 @@ const joinTeam = async (teamIndex:number) =>
 }
 
 //BLUE = 0 RED = 1
-const canBecomeCap = (teamIndex:number) =>
+const canBecomeCap = (teamIndex:number): boolean =>
 {
   updateLocalTeamIndex();
   if(teamIndex < 0 || teamIndex > 1)
@@ -335,7 +345,7 @@ const becomeCap = async (teamIndex:number) =>
   updateLocalTeamIndex();
 }
 
-const canLeaveCapPost = () =>
+const canLeaveCapPost = (): boolean =>
 {
   updateLocalTeamIndex();
   if(localTeamIndex.value != 2 && localTeamIndex.value != 3)
@@ -384,22 +394,17 @@ const leaveAnyPosition = async () =>
   }
 }
 
-const generateNewWordField = async () => {
-
-  // 1. Создаем случайный список из 25 уникальных слов.
-
-  // Создаем копию списка слов, чтобы не изменять оригинал
+const generateNewWordField = async () => 
+{
+  knownWordsIndexes.value = new Array<number>();
+  winner.value = -1;
 
   const shuffledCodenamesWordList = [...codenamesWordList].sort(() => Math.random() - 0.5);
   wordsField.value = shuffledCodenamesWordList.slice(0, 25);
 
-
-  // 2. Случайно выбираем команду, которая будет отвечать первой.
   const firstTeamIsBlue = Math.random() < 0.5;
-  startingTeam.value = firstTeamIsBlue ? 0 : 1; // 0 для синих, 1 для красных
+  startingTeam.value = firstTeamIsBlue ? 0 : 1; 
 
-
-  // 3. Назначаем слова командам, черное и белые слова.
   const allWordIndexes = Array.from({ length: 25 }, (_, i) => i);
   const shuffledIndexes = allWordIndexes.sort(() => Math.random() - 0.5);
 
@@ -428,8 +433,6 @@ const generateNewWordField = async () => {
 
   whiteWordsIndexes.value = shuffledIndexes.slice(currentIndex);
 
-
-  // 4. Обновляем Firebase с новыми данными игрового состояния.
   await updateToServer({
 
     [wordsFieldPath]: wordsField.value,
@@ -438,6 +441,8 @@ const generateNewWordField = async () => {
     [blueWordIndexesPath]: blueWordsIndexes.value,
     [whiteWordIndexesPath]: whiteWordsIndexes.value,
     [blackWordIndexPath]: blackWordIndex.value,
+    [knownWordsIndexesPath]:knownWordsIndexes.value,
+    [winnerPath]:winner.value,
 
   });
 
@@ -446,41 +451,198 @@ const generateNewWordField = async () => {
 
 const getWordClass = (index: number): string => 
 {
-  if(localTeamIndex.value != 2 && localTeamIndex.value != 3)
+  if(knownWordsIndexes.value.includes(index) || localTeamIndex.value == 2 || localTeamIndex.value == 3)
   {
-    return 'color-unknown';    
-  }
+    if (blackWordIndex.value === index) 
+    {
+      return 'color-black';
+    }
 
+    if (redWordsIndexes.value.includes(index)) 
+    {
+      return 'color-red';
+    }
 
-  if (redWordsIndexes.value.includes(index)) 
-  {
-    return 'color-red';
-  }
-
-  if (blueWordsIndexes.value.includes(index)) 
-  {
-    return 'color-blue';
-  }
-
-  if (blackWordIndex.value === index) 
-  {
-    return 'color-black';
+    if (blueWordsIndexes.value.includes(index)) 
+    {
+      return 'color-blue';
+    }
+    
+    return 'color-white'
   }
   
-  return 'color-white';
-
+  return 'color-unknown';
 
 };
+
+const canRevealWord = (index:number): boolean =>
+{
+  if(winner.value != -1)
+  {
+   return false; 
+  }
+  if(startingTeam.value == 0)
+  {
+   if(localTeamIndex.value == 0)
+    {
+      return true;
+    } 
+  }
+  else
+  {
+    if(localTeamIndex.value == 1)
+    {
+      return true;
+    } 
+  }
+  if(knownWordsIndexes.value.includes(index))
+  {
+    return false;
+  }
+  return false;
+}
+
+const revealWord = async (index:number) =>
+{
+  if(!canRevealWord(index))
+  {
+    return; 
+  }
+  knownWordsIndexes.value.push(index);
+  
+  await updateToServer(
+  {
+    [knownWordsIndexesPath]:knownWordsIndexes.value,
+  });
+
+  if(blackWordIndex.value == index)
+  {
+    if(localTeamIndex.value == 0)
+    {
+      await winGame(1);
+    }
+    else
+    {
+      await winGame(0);
+    }
+  }
+
+  if(whiteWordsIndexes.value.includes(index))
+  {
+    await nextRound();
+  }
+  if(localTeamIndex.value == 0)
+  {
+    if(redWordsIndexes.value.includes(index))
+    {
+      await nextRound();
+    }
+  }
+  else if(blueWordsIndexes.value.includes(index))
+    {
+      await nextRound();
+    }
+    
+  const winner = checkWinner();
+  if(winner != -1)
+  {
+    await winGame(winner);
+  }
+  
+}
+
+//-1 Nobody 0 - Blue 1 - Red
+const checkWinner = ():number =>
+{
+  let blueRevealedCount = 0;
+  let redRevealedCount = 0;
+
+  for (const knownIndex of knownWordsIndexes.value) 
+  {
+    if (blueWordsIndexes.value.includes(knownIndex)) 
+    {
+      blueRevealedCount++;
+    } 
+    else if (redWordsIndexes.value.includes(knownIndex))
+    {
+      redRevealedCount++;
+    }
+  }
+
+  const blueTarget = blueWordsIndexes.value.length;
+  const redTarget = redWordsIndexes.value.length;
+
+  if (blueRevealedCount === blueTarget)
+  {
+    return 0; // Blue team wins
+  }
+
+  if (redRevealedCount === redTarget) 
+  {
+    return 1; // Red team wins
+  }
+  return -1; // No team has won yet
+}
+
+const canGoToTheNextRound = ():boolean =>
+{
+  if(startingTeam.value == 0)
+  {
+   if(localTeamIndex.value == 2 || localTeamIndex.value == 0)
+    {
+      return true;
+    } 
+    return false;
+  }
+  else if(localTeamIndex.value == 3  || localTeamIndex.value == 1)
+  {
+    return true;
+  } 
+  return false;
+}
+
+const nextRound = async () =>
+{
+  if(!canGoToTheNextRound())
+  {
+    return; 
+  }
+
+  if(startingTeam.value == 0)
+  {
+    startingTeam.value = 1;
+  }
+  else
+  {
+    startingTeam.value = 0;
+  }
+
+}
+
+const winGame = async (teamIndex:number) =>
+{
+    winner.value = teamIndex;
+    await updateToServer(
+      {
+      [winnerPath]:winner.value
+    })
+}
+
+const isCap = ():boolean =>
+{
+  return localTeamIndex.value == 2 || localTeamIndex.value == 3;
+}
 
 </script>
 <template>
   <div>
     <h1>CODENAMES</h1> 
+    <h2 :hidden="winner == -1">{{ winner == 0 ? "BLUE": "RED"}} team WINS!</h2>
     <input type="text" v-model="playerUid" placeholder="Type something..." />
     <div style="display: flex; flex-direction: row;">
       <div>
-        <p>BLUE</p>
-        <p>{{ blueCap }}</p>
+        <p>{{startingTeam == 0 ? "(TURN) " : ""}}BLUE</p>
+        <p>CAP: {{ blueCap }}</p>
         <button :hidden="!canBecomeCap(0)" :disabled="currentlyUpdatingData" @click="becomeCap(0)">JOIN BLUE AS CAP</button>
 
         <ul>
@@ -492,20 +654,21 @@ const getWordClass = (index: number): string =>
       </div>
 
       <div class="codenames-board">
-        <div
+        <button
           v-for="(word, index) in wordsField"
           :key="index"
           :class="getWordClass(index)"
           class="codenames-card"
+          :disabled="!canRevealWord(index) || currentlyUpdatingData"
+          @click="revealWord(index)"
         >
-          {{ word }}
-        </div>
+          {{ word }} {{isCap() && knownWordsIndexes.includes(index) ? "(V)" : ""  }}
+        </button>
       </div>
 
-
       <div>
-        <p>RED</p>
-        <p>{{ redCap }}</p>
+        <p>{{startingTeam == 1 ? "(TURN) " : ""}}RED</p>
+        <p>CAP: {{ redCap }}</p>
         <button :hidden="!canBecomeCap(1)" :disabled="currentlyUpdatingData" @click="becomeCap(1)">JOIN RED AS CAP</button>
 
         <ul style="flex-direction: row; display: flex; align-items: center;">
@@ -518,11 +681,12 @@ const getWordClass = (index: number): string =>
     </div>
     <button :hidden="!canLeaveTeam()" :disabled="currentlyUpdatingData" @click="leaveTeam">Leave team</button>
     <button :hidden="!canLeaveCapPost()" :disabled="currentlyUpdatingData" @click="leaveCapPost">Leave cap post</button>
+    <button :hidden="!canGoToTheNextRound() || !isCap()" :disabled="currentlyUpdatingData" @click="nextRound">Next round -></button>
     <button  @click="generateNewWordField">GENERATE WORD FIELD</button>
     <div>
       DEBUG INFO:<br>
       Updating data:{{ currentlyUpdatingData }}<br></br>
-      currentTeamIndex: {{ localTeamIndex }}<br></br>
+      localTeamIndex: {{ localTeamIndex }}<br></br>
       blueCap: {{ blueCap }}<br></br>
       redCap: {{ redCap }}<br></br>
       wordsField: {{ wordsField }}<br></br>
@@ -530,6 +694,9 @@ const getWordClass = (index: number): string =>
       redWordIndexes: {{ redWordsIndexes }}<br></br>
       blueWordIndexes: {{ blueWordsIndexes }}<br></br>
       blackWordIndex: {{ blackWordIndex }}<br></br>
+      startingTeam: {{ startingTeam }}<br></br>
+      knownWordsIndexes: {{ knownWordsIndexes }}<br></br>
+      
     </div>
 
   </div>

@@ -6,9 +6,9 @@ import Codenames from '../components/Codenames.vue'
 
 const routes = [
   { path: '/bg', component: Home },
-  { path: '/alias', component: Alias },
-  { path: '/codenames', component: Codenames },
-  { path: '/counter', component: Counter },
+  { path: '/alias/:roomId', component: Alias },
+  { path: '/codenames/:roomId', component: Codenames },
+  { path: '/counter/:roomId', component: Counter },
 ]
 
 export const router = createRouter({

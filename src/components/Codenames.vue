@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useRoute } from "vue-router";
 import { ref, onMounted, watch, onUnmounted  } from "vue";
 import { db } from "../firebase";
 import {
@@ -8,7 +9,7 @@ import {
 } from "firebase/firestore";
 
 // Слова для игры Codenames
- const codenamesWordList = [
+const codenamesWordList = [
   // Животные
   "слон", "тигр", "жираф", "крокодил", "обезьяна", "попугай", "дельфин", "медведь", "волк", "лиса",
   "заяц", "белка", "ёж", "верблюд", "панда", "коала", "кенгуру", "пингвин", "лебедь", "орёл",
@@ -49,11 +50,21 @@ import {
   "праздник", "день рождения", "свадьба", "новый год", "рождество", "путешествие", "отпуск", "каникулы", "вечеринка", "концерт"
 ] as const;
 
-const roomId = "codenames_test"; //TODO: get from adress instead
+const route = useRoute();
+const roomId = route.params.roomId as string; //TODO: get from adress instead
 const localTeamIndex = ref<number>(-1); // -1 = no team 0 = blue 1 = red 2 = blueCap 3 = redCap
 
+const playerName = ref("testPlayerName");
 const playerUid = ref("testUID"); //TODO: assign automatically
 const roomRef= doc(db, "room", roomId);
+
+const playersList = ref<Array<Player>>(new Array<Player>);
+
+interface Player
+{
+  uid:string, 
+  name:string
+}
 
 
 interface Team
@@ -85,6 +96,7 @@ const knownWordsIndexes= ref<Array<number>>(new Array<number>);
 const winner = ref<number>(-1);
 
 //paths
+const playersListPath = "gameState.playersList";
 
 const startingTeamPath = "gameState.startingTeam";
 
@@ -104,6 +116,18 @@ const knownWordsIndexesPath = "gameState.knownWordsIndexes";
 const winnerPath = "gameState.winner";
 
 
+const getNameFromUid = (uid:string):string =>
+{
+  for(const player of playersList.value)
+  {
+    if(player.uid == uid)
+    {
+      return player.name; 
+    }
+  }
+  return "Player";
+}
+
 onMounted(() => 
 {
   window.addEventListener('beforeunload', handleBeforeUnload);
@@ -119,7 +143,7 @@ onMounted(() =>
       {
         startingTeam.value = snap.data().gameState.startingTeam;
       }
-
+      
       if (snap.data().gameState.redCap !== undefined)
       {
           redCap.value = snap.data().gameState.redCap;
@@ -166,10 +190,58 @@ onMounted(() =>
       {
         winner.value = snap.data().gameState.winner;
       }
-      
+      if(snap.data().gameState.playersList !== undefined)
+      {
+        playersList.value = snap.data().gameState.playersList;
+      }
     }
   updateLocalTeamIndex();
   });
+
+  const uid = localStorage.getItem("playerUid");
+  const localPlayerName = localStorage.getItem("playerName");
+  if(uid && localPlayerName)
+  {
+    playerUid.value = uid;
+    playerName.value = localPlayerName;
+    
+  }
+  else
+  {
+    playerUid.value = crypto.randomUUID();
+    localStorage.setItem("playerUid", playerUid.value);
+    const inputName = prompt("Введите имя:");
+    if(inputName)
+    {
+      playerName.value = inputName;
+      localStorage.setItem("playerName", playerName.value);
+    }
+  }
+
+  for(const player of playersList.value)
+  {
+    if(player.uid == playerUid.value)
+    {
+      if(player.name == playerName.value)
+      {
+        return; 
+      }
+      else
+      { 
+        player.name = playerName.value;
+        updateToServer(
+        {
+          [playersListPath]:playersList.value
+        });
+      }
+      return;
+    }
+  }
+  playersList.value.push({uid:playerUid.value, name:playerName.value});
+  updateToServer(
+        {
+          [playersListPath]:playersList.value
+        });
 });
 
 const handleBeforeUnload = (event: BeforeUnloadEvent) => 
@@ -638,16 +710,15 @@ const isCap = ():boolean =>
   <div>
     <h1>CODENAMES</h1> 
     <h2 :hidden="winner == -1">{{ winner == 0 ? "BLUE": "RED"}} team WINS!</h2>
-    <input type="text" v-model="playerUid" placeholder="Type something..." />
     <div style="display: flex; flex-direction: row;">
       <div>
         <p>{{startingTeam == 0 ? "(TURN) " : ""}}BLUE</p>
-        <p>CAP: {{ blueCap }}</p>
+        <p>CAP: {{ getNameFromUid(blueCap) }}</p>
         <button :hidden="!canBecomeCap(0)" :disabled="currentlyUpdatingData" @click="becomeCap(0)">JOIN BLUE AS CAP</button>
 
         <ul>
           <li v-for="(value) in teamBlue.players" >
-            {{ value }}
+            {{ getNameFromUid(value) }}
           </li>
         </ul>
         <button :hidden="!canJoinTeam(0)" :disabled="currentlyUpdatingData" @click="joinTeam(0)">JOIN BLUE</button>
@@ -668,12 +739,12 @@ const isCap = ():boolean =>
 
       <div>
         <p>{{startingTeam == 1 ? "(TURN) " : ""}}RED</p>
-        <p>CAP: {{ redCap }}</p>
+        <p>CAP: {{  getNameFromUid(redCap) }}</p>
         <button :hidden="!canBecomeCap(1)" :disabled="currentlyUpdatingData" @click="becomeCap(1)">JOIN RED AS CAP</button>
 
         <ul style="flex-direction: row; display: flex; align-items: center;">
           <li v-for="(value) in teamRed.players" >
-            {{ value }}
+            {{ getNameFromUid(value) }}
           </li>
         </ul>
         <button :hidden="!canJoinTeam(1)" :disabled="currentlyUpdatingData" @click="joinTeam(1)">JOIN RED</button>
@@ -696,6 +767,7 @@ const isCap = ():boolean =>
       blackWordIndex: {{ blackWordIndex }}<br></br>
       startingTeam: {{ startingTeam }}<br></br>
       knownWordsIndexes: {{ knownWordsIndexes }}<br></br>
+      playersList: {{ playersList }}<br></br>
       
     </div>
 

@@ -7,6 +7,7 @@ import {
   updateDoc,
   Timestamp
 } from "firebase/firestore";
+import { useRoute } from "vue-router";
 
 // Слова для игры Alias
  const aliasWordList = [
@@ -50,20 +51,32 @@ import {
   "праздник", "день рождения", "свадьба", "новый год", "рождество", "путешествие", "отпуск", "каникулы", "вечеринка", "концерт"
 ] as const;
 
-const roomId = "main"; //TODO: get from adress instead
+const route = useRoute();
+const roomId = route.params.roomId as string; //TODO: get from adress instead
 const roundDuration = 10;
 const winRequirement = 20;
 const roundTimer = ref(0);
 
-const playerUid = ref(""); //TODO: assign automatically
+const playerName = ref("testPlayerName");
+const playerUid = ref("testUID"); //TODO: assign automatically
 const currentTeamIndex = ref(-1); //-1 means no team
 let wordHistory = new Array<string>();
 
 let isRoundOver = false;
 
+const playersList = ref<Array<Player>>(new Array<Player>);
+
+interface Player
+{
+  uid:string, 
+  name:string
+}
+
+
 //firebase refs and paths
 const roomRef= doc(db, "room", roomId);
 
+const playersListPath = "gameState.playersList";
 const teamsPath = "gameState.teams";
 const currentWordPath = "gameState.currentWord";
 const roundStartTimePath = "gameState.roundStartTime";
@@ -84,6 +97,20 @@ const masterPlayer = ref<string>();
 const masterPlayerIndex = ref(0);
 const masterTeamIndex = ref(0);
 
+
+const getNameFromUid = (uid:string):string =>
+{
+  for(const player of playersList.value)
+  {
+    if(player.uid == uid)
+    {
+      return player.name; 
+    }
+  }
+  return "Player";
+}
+
+
 // указываем путь к документу
 onMounted(() => {
   setInterval(updateRoundTimer, 100);
@@ -96,6 +123,11 @@ onMounted(() => {
       masterPlayer.value = snap.data().gameState.masterPlayer;
 
       const serverCurrentWord = snap.data().gameState.currentWord;
+      
+      if(snap.data().gameState.playersList !== undefined)
+      {
+        playersList.value = snap.data().gameState.playersList;
+      }
 
       if(currentWord.value !== serverCurrentWord)
       {
@@ -112,7 +144,57 @@ onMounted(() => {
       updateMPIndex();
     }
   });
+  const uid = localStorage.getItem("playerUid");
+  const localPlayerName = localStorage.getItem("playerName");
+  if(uid && localPlayerName)
+  {
+    playerUid.value = uid;
+    playerName.value = localPlayerName;
+    
+  }
+  else
+  {
+    playerUid.value = crypto.randomUUID();
+    localStorage.setItem("playerUid", playerUid.value);
+    const inputName = prompt("Введите имя:");
+    if(inputName)
+    {
+      playerName.value = inputName;
+      localStorage.setItem("playerName", playerName.value);
+    }
+  }
+
+  for(const player of playersList.value)
+  {
+    if(player.uid == playerUid.value)
+    {
+      if(player.name == playerName.value)
+      {
+        return; 
+      }
+      else
+      { 
+        player.name = playerName.value;
+        updateToServer(
+        {
+          [playersListPath]:playersList.value
+        });
+      }
+      return;
+    }
+  }
+  playersList.value.push({uid:playerUid.value, name:playerName.value});
+  updateToServer(
+        {
+          [playersListPath]:playersList.value
+        });
 });
+
+const updateToServer = async (data:{}) =>
+{
+  await updateDoc(roomRef, 
+    data);
+}
 
 const startRound = async () => 
 {
@@ -462,7 +544,7 @@ const getWinnerTeam = () =>
   <div>
     <h1>Шляпа</h1> 
     <h1 :hidden="getWinnerTeam() == -1">Победила команда {{ getWinnerTeam() }}</h1>
-    <p :hidden="amIMaster()">{{ masterPlayer}} объясняет</p>
+    <p :hidden="amIMaster()">{{getNameFromUid(masterPlayer!)}} объясняет</p>
     <p :hidden="!amIMaster()">Вы объясняете</p>
     <p :hidden="currentTeamIndex == -1">Вы в команде {{ currentTeamIndex }}</p>
     <h1 v-bind:hidden="!isRoundInProgress()">{{ formatTime(roundTimer) }}</h1>
@@ -479,7 +561,7 @@ const getWinnerTeam = () =>
     <ul style="flex-direction: row; display: flex; align-items: center;">
       <li v-for="(value, index) in teams" >
         <p>Команда {{ index }}: {{ value.score }}</p> 
-        <p>{{ value.players }}</p>
+        <p v-for="(asdads, index) in value.players">{{ getNameFromUid(asdads) }}</p>
         <button @click="joinTeam(index)" v-bind:hidden="isRoundInProgress() || !canJoinTeam(index)">Присоединится</button>
       </li>
       <li  v-bind:hidden="isRoundInProgress()"><button @click="createTeam">+ Команда</button></li>
@@ -488,9 +570,6 @@ const getWinnerTeam = () =>
     <button @click="startRound" v-bind:disabled="isRoundInProgress() || !amIMaster()">Начать</button>
     |
     <button @click="leaveTeam" v-bind:disabled="isRoundInProgress()">Выйти из команды</button>
-    |
-    <input type="text" v-model="playerUid" placeholder="Type something..." />
-    <button @click="updateTeamIndex" v-bind:disabled="isRoundInProgress()">(R)</button>
     |
     <button @click="skipWord" v-bind:hidden="!isRoundInProgress() || !amIMaster()">(X) Пропустить</button>
     <button @click="guessWord" v-bind:hidden="!isRoundInProgress() || !amIMaster()">(->) Угадано</button>
